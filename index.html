@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --tx:#1d2330; --mu:#6b7280; --ac:#2f6f5e; --bd:#d9dde3; --off:#eceef1; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171c; --card:#1d222a; --tx:#e9ecf1; --mu:#9aa3b2; --ac:#4fa58e; --bd:#333a46; --off:#262c35; } }
+  * { box-sizing:border-box }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--tx); padding:16px }
+  .card { max-width:520px; margin:0 auto; background:var(--card); border-radius:14px; padding:20px; border:1px solid var(--bd) }
+  h1 { font-size:1.3rem; margin:0 0 4px } p.s { color:var(--mu); margin:0 0 16px; font-size:.9rem }
+  label { display:block; font-weight:600; margin:14px 0 6px; font-size:.9rem }
+  input, select { width:100%; padding:12px; font-size:16px; border:1px solid var(--bd); border-radius:10px; background:var(--card); color:var(--tx) }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
+  .slot { padding:12px 0; border:1px solid var(--bd); border-radius:10px; background:var(--card); color:var(--tx); font-size:.95rem; cursor:pointer }
+  .slot.sel { background:var(--ac); color:#fff; border-color:var(--ac) }
+  .slot:disabled { background:var(--off); color:var(--mu); text-decoration:line-through; cursor:not-allowed }
+  .go { width:100%; margin-top:18px; padding:14px; font-size:1rem; font-weight:600; border:0; border-radius:10px; background:var(--ac); color:#fff; cursor:pointer }
+  .go:disabled { opacity:.5 } .msg { margin-top:14px; padding:12px; border-radius:10px; font-size:.92rem }
+  .ok { background:#e3f4ec; color:#14573f } .err { background:#fde8e8; color:#8a1f1f } .warn { background:#fff4dc; color:#7a5200 }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Reserva tu masaje</h1>
+  <p class="s">Sesiones de 15 min, todos los miércoles.</p>
+  <label for="email">Correo electrónico</label>
+  <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="nombre@empresa.com">
+  <label for="date">Miércoles</label>
+  <select id="date"></select>
+  <div id="full" class="msg warn" style="display:none"></div>
+  <label id="lbl">Horario</label>
+  <div id="slots" class="grid"></div>
+  <button id="btn" class="go" disabled>Reservar</button>
+  <div id="msg"></div>
+</div>
+<script>
+let D = null, sel = null, busy = false, done = false;
+const $ = id => document.getElementById(id);
+const t12 = t => { let [h, m] = t.split(':').map(Number); return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); };
+const label = d => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }); };
+const show = (c, t) => $('msg').innerHTML = t ? `<div class="msg ${c}">${t}</div>` : '';
+
+function closeForm(html) {
+  done = true;
+  document.querySelector('.card').innerHTML = '<h1>Registro completado</h1><p class="s"></p>' + html;
+}
+
+// Consulta el estado actual; conserva fecha y horario elegidos si siguen libres
+const API = 'https://script.google.com/macros/s/AKfycbx2Q8db-hMZL9vNxjfk2oEgLMzipklSY3TDUjz-XGihcQe6Nx2es4mXxStXrl-TZr5K/exec';
+const post = body => fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
+
+// Consulta el estado actual; conserva fecha y horario elegidos si siguen libres
+function load() {
+  fetch(API + '?t=' + Date.now()).then(r => r.json()).then(d => {
+    if (done) return;
+    D = d; const cur = $('date').value;
+    $('date').innerHTML = d.dates.map(x => `<option value="${x.date}">${label(x.date)}</option>`).join('');
+    if (cur) $('date').value = cur;
+    render();
+  }).catch(() => { if (!D) show('err', 'No se pudo cargar. Revisa tu conexión y recarga la página.'); });
+}
+
+function render() {
+  const x = D.dates.find(d => d.date === $('date').value), full = x.taken.length >= D.slots.length;
+  if (sel && x.taken.includes(sel)) { show('warn', `El horario de las ${t12(sel)} acaba de ser tomado por otra persona. Elige otro.`); sel = null; }
+  $('lbl').style.display = $('slots').style.display = full ? 'none' : '';
+  $('full').style.display = full ? '' : 'none';
+  $('full').textContent = `Los cupos de este día están llenos. Puedes unirte a la lista de espera (${x.waitlist} en espera).`;
+  $('slots').innerHTML = D.slots.map(t => `<button class="slot${t === sel ? ' sel' : ''}" data-t="${t}" ${x.taken.includes(t) ? 'disabled' : ''}>${t12(t)}</button>`).join('');
+  $('slots').querySelectorAll('.slot:not(:disabled)').forEach(b => b.onclick = () => {
+    sel = b.dataset.t; show('', '');
+    $('slots').querySelectorAll('.slot').forEach(s => s.classList.toggle('sel', s === b)); upd();
+  });
+  $('btn').textContent = full ? 'Unirme a la lista de espera' : 'Reservar';
+  upd();
+}
+function upd() {
+  const x = D.dates.find(d => d.date === $('date').value), full = x.taken.length >= D.slots.length;
+  $('btn').disabled = busy || (!full && !sel);
+}
+$('date').onchange = () => { sel = null; show('', ''); render(); };
+
+$('btn').onclick = () => {
+  const email = $('email').value.trim();
+  if (!email) { show('err', 'Escribe tu correo.'); return; }
+  busy = true; upd(); show('', '');
+  post({ email, date: $('date').value, time: sel }).then(r => {
+    busy = false;
+    if (r.ok) {
+      try { localStorage.setItem('masaje_done', '1'); } catch (e) {}
+      closeForm(r.estado === 'Confirmado'
+        ? `<div class="msg ok">✅ Tu respuesta ha sido guardada exitosamente.<br>${label(r.date)} a las ${t12(r.time)}.<br>Te enviamos un correo de confirmación. Ya puedes cerrar esta página.</div>`
+        : `<div class="msg warn">⏳ Tu respuesta ha sido guardada exitosamente.<br>Quedaste en lista de espera; te avisaremos por correo si se libera un horario. Ya puedes cerrar esta página.</div>`);
+    } else { show('err', r.msg); load(); }
+  }).catch(() => { busy = false; show('err', 'Error de conexión. Intenta de nuevo.'); upd(); });
+};
+
+try { if (localStorage.getItem('masaje_done')) closeForm('<div class="msg ok">Ya completaste tu registro desde este dispositivo. Solo se permite un registro por persona.</div>'); } catch (e) {}
+if (!done) {
+  load();
+  // Actualización en vivo: los horarios tomados por otros se bloquean en ~4 segundos
+  setInterval(() => { if (!document.hidden && !busy && !done) load(); }, 4000);
+}
+</script>
+</body>
+</html>
