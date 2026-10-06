@@ -9,6 +9,7 @@
   * { box-sizing:border-box }
   body { margin:0; font-family:system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--tx); padding:16px }
   .card { max-width:520px; margin:0 auto; background:var(--card); border-radius:14px; padding:20px; border:1px solid var(--bd) }
+  #dlbl::first-letter { text-transform:uppercase }
   h1 { font-size:1.3rem; margin:0 0 4px } p.s { color:var(--mu); margin:0 0 16px; font-size:.9rem }
   label { display:block; font-weight:600; margin:14px 0 6px; font-size:.9rem }
   input, select { width:100%; padding:12px; font-size:16px; border:1px solid var(--bd); border-radius:10px; background:var(--card); color:var(--tx) }
@@ -24,10 +25,10 @@
 <body>
 <div class="card">
   <h1>Reserva tu masaje</h1>
-  <p class="s">Sesiones de 15 min, todos los miércoles.</p>
+  <p class="s" id="sub">Sesiones de 15 min, todos los miércoles.</p>
   <label for="email">Correo electrónico</label>
   <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="nombre@empresa.com">
-  <label for="date">Miércoles</label>
+  <label id="dlbl" for="date">Miércoles</label>
   <select id="date"></select>
   <div id="full" class="msg warn" style="display:none"></div>
   <label id="lbl">Horario</label>
@@ -46,16 +47,23 @@ function closeForm(html) {
   done = true;
   document.querySelector('.card').innerHTML = '<h1>Registro completado</h1><p class="s"></p>' + html;
 }
-
-// Consulta el estado actual; conserva fecha y horario elegidos si siguen libres
-const API = 'https://script.google.com/macros/s/AKfycbx2Q8db-hMZL9vNxjfk2oEgLMzipklSY3TDUjz-XGihcQe6Nx2es4mXxStXrl-TZr5K/exec';
+const API = 'https://script.google.com/macros/s/AKfycbzCHOdKPOaCPzIcz26TuzvSSTiBSQ7-sMHxAtWA07ktE2K5RphfWd5vgeOU51_f7WA3/exec';
+const stored = () => { try { return localStorage.getItem('masaje_done'); } catch (e) { return null; } };
+const K = new URLSearchParams(location.search).get('k') || '';
+function showClosed(msg) {
+  done = true;
+  document.querySelector('.card').innerHTML = '<h1>Inscripciones cerradas</h1><p class="s"></p><div class="msg warn">' + msg + '</div>';
+}
 const post = body => fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
 
 // Consulta el estado actual; conserva fecha y horario elegidos si siguen libres
 function load() {
-  fetch(API + '?t=' + Date.now()).then(r => r.json()).then(d => {
+  fetch(API + '?k=' + encodeURIComponent(K) + '&t=' + Date.now()).then(r => r.json()).then(d => {
     if (done) return;
+    if (d.closed) { showClosed(d.msg); return; }
+    if (d.closesAt) { const c = new Date(d.closesAt); $('sub').textContent = 'Sesiones de 15 min. Las inscripciones cierran el ' + c.toLocaleDateString('es', { weekday: 'long' }) + ' a las ' + c.toLocaleTimeString('es', { hour: 'numeric', minute: '2-digit' }) + '.'; }
     D = d; const cur = $('date').value;
+    if (d.dates.some(x => x.date === stored())) { closeForm('<div class="msg ok">Ya completaste tu registro desde este dispositivo. Solo se permite un registro por persona.</div>'); return; }
     $('date').innerHTML = d.dates.map(x => `<option value="${x.date}">${label(x.date)}</option>`).join('');
     if (cur) $('date').value = cur;
     render();
@@ -63,6 +71,10 @@ function load() {
 }
 
 function render() {
+  // Si solo se ofrece un miércoles, se muestra la fecha como texto y se oculta el selector
+  const one = D.dates.length === 1;
+  $('date').style.display = one ? 'none' : '';
+  $('dlbl').textContent = one ? 'Fecha: ' + label(D.dates[0].date) : 'Miércoles';
   const x = D.dates.find(d => d.date === $('date').value), full = x.taken.length >= D.slots.length;
   if (sel && x.taken.includes(sel)) { show('warn', `El horario de las ${t12(sel)} acaba de ser tomado por otra persona. Elige otro.`); sel = null; }
   $('lbl').style.display = $('slots').style.display = full ? 'none' : '';
@@ -86,18 +98,17 @@ $('btn').onclick = () => {
   const email = $('email').value.trim();
   if (!email) { show('err', 'Escribe tu correo.'); return; }
   busy = true; upd(); show('', '');
-  post({ email, date: $('date').value, time: sel }).then(r => {
+  post({ email, date: $('date').value, time: sel, k: K }).then(r => {
     busy = false;
     if (r.ok) {
-      try { localStorage.setItem('masaje_done', '1'); } catch (e) {}
+      try { localStorage.setItem('masaje_done', r.date); } catch (e) {}
       closeForm(r.estado === 'Confirmado'
         ? `<div class="msg ok">✅ Tu respuesta ha sido guardada exitosamente.<br>${label(r.date)} a las ${t12(r.time)}.<br>Te enviamos un correo de confirmación. Ya puedes cerrar esta página.</div>`
         : `<div class="msg warn">⏳ Tu respuesta ha sido guardada exitosamente.<br>Quedaste en lista de espera; te avisaremos por correo si se libera un horario. Ya puedes cerrar esta página.</div>`);
-    } else { show('err', r.msg); load(); }
+    } else { if (r.closed) { showClosed(r.msg); return; } show('err', r.msg); load(); }
   }).catch(() => { busy = false; show('err', 'Error de conexión. Intenta de nuevo.'); upd(); });
 };
 
-try { if (localStorage.getItem('masaje_done')) closeForm('<div class="msg ok">Ya completaste tu registro desde este dispositivo. Solo se permite un registro por persona.</div>'); } catch (e) {}
 if (!done) {
   load();
   // Actualización en vivo: los horarios tomados por otros se bloquean en ~4 segundos
