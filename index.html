@@ -47,6 +47,7 @@ function closeForm(html) {
   done = true;
   document.querySelector('.card').innerHTML = '<h1>Registro completado</h1><p class="s"></p>' + html;
 }
+
 const API = 'https://script.google.com/macros/s/AKfycbzCHOdKPOaCPzIcz26TuzvSSTiBSQ7-sMHxAtWA07ktE2K5RphfWd5vgeOU51_f7WA3/exec';
 const stored = () => { try { return localStorage.getItem('masaje_done'); } catch (e) { return null; } };
 const K = new URLSearchParams(location.search).get('k') || '';
