@@ -64,7 +64,6 @@ function load() {
     if (d.closed) { showClosed(d.msg); return; }
     if (d.closesAt) { const c = new Date(d.closesAt); $('sub').textContent = 'Sesiones de 15 min. Las inscripciones cierran el ' + c.toLocaleDateString('es', { weekday: 'long' }) + ' a las ' + c.toLocaleTimeString('es', { hour: 'numeric', minute: '2-digit' }) + '.'; }
     D = d; const cur = $('date').value;
-    if (d.dates.some(x => x.date === stored())) { closeForm('<div class="msg ok">Ya completaste tu registro desde este dispositivo. Solo se permite un registro por persona.</div>'); return; }
     $('date').innerHTML = d.dates.map(x => `<option value="${x.date}">${label(x.date)}</option>`).join('');
     if (cur) $('date').value = cur;
     render();
